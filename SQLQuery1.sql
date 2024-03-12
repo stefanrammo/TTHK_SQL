@@ -296,3 +296,243 @@ Value nvarchar(20)
 
 insert into Test1 values('X')
 select * from Test1
+
+alter table Employees
+drop column City
+
+--inner join
+--kuvab neid, kellel on DepartmentName all olemas väärtus
+select Name, Gender, Salary, Department.DepartmentName --loetavuse mõttes kasutan Department.DepartmentName
+from Employees
+inner join Department
+on Employees.DepartmentId = Department.Id
+
+--left join
+--kuidas saada kõik andmed Employees't kätte
+select Name, Gender, Salary, DepartmentName
+from Employees
+left join Department --võib kasutada ka LEFT OUTER JOIN
+on Employees.DepartmentId = Department.Id
+
+---right join
+---kuidas saada DepartmentName alla uus nimetus
+select Name, Gender, Salary, DepartmentName
+from Employees
+right join Department --võib kasutada ka RIGHT OUTER JOIN
+on Employees.DepartmentId = Department.Id
+
+--kuidas saada kõikide tabelite väärtused ühte päringusse
+select Name, Gender, Salary, DepartmentName
+from Employees
+full outer join Department
+on Employees.DepartmentId = Department.Id
+
+--cross join võtab kaks allpool olevat tabelit kokku ja korrutab need omavahel läbi
+select Name, Gender, Salary, DepartmentName
+from Employees
+cross join Department
+
+--päringu sisu
+select ColumnList
+from LeftTable
+joinType RightTable
+on JoinCondition
+
+--kuidas kuvada ainult need isikud, kellel on DepartmentName NULL
+select Name, Gender, Salary, DepartmentName
+from Employees
+left join Department
+on Employees.DepartmentId = Department.Id
+where Employees.DepartmentId is NULL
+
+--teine variant
+select Name, Gender, Salary, DepartmentName
+from Employees
+left join Department
+on Employees.DepartmentId = Department.Id
+where Department.Id is NULL
+
+--full join
+--mõlema tabeli mitte-kattuvate väärtustega read kuvab välja
+select Name, Gender, Salary, DepartmentName
+from Employees
+full join Department
+on Employees.DepartmentId = Department.Id
+where Employees.DepartmentId is NULL
+or Department.Id is NULL
+
+--kuidas saame Department tabelis oleva rea, kus on NULL
+select Name, Gender, Salary, DepartmentName
+from Employees
+right join Department
+on Employees.DepartmentId = Department.Id
+where Employees.DepartmentId is NULL
+
+--kuidas muuta tablei nime, alguses vana tabeli nimi ja siis uue nimi
+sp_rename 'Department', 'Department1'
+sp_rename 'Department1', 'Department'
+
+--kasutame Employees tabeli asemel lühendit E ja Department asemel D
+select E.Name as EmpName, D.DepartmentName as DeptName
+from Employees E
+left join Department D
+on E.DepartmentId = D.Id
+
+--inner join
+--kuvab ainult DeptartmentId'ga isikuid
+select E.Name as EmpName, D.DepartmentName as DeptName
+from Employees E
+inner join Department D
+on E.DepartmentId = D.Id
+
+--cross join
+select E.Name as EmpName, D.DepartmentName as DeptName
+from Employees E
+cross join Department D
+
+--kuvab 'Stefan' Manager veerus
+select ISNULL('Stefan', 'No Manager') as Manager
+
+--NULL asemel kuvab No Manager
+select coalesce(NULL, 'No Manager') as Manager
+
+--kui Expression on õige, siis paneb väärtuse, 
+--mida soovid või mõne teise väärtuse
+case when Expression then '' else '' end
+
+---
+alter table Employees
+add ManagerId int
+
+--neil, kellel ei ole ülemust, siis paneb No manager teksti
+select E.Name as Employee, isnull(M.Name, 'No Manager') as Manager
+from Employees E
+left join Employees M
+on E.ManagerId = M.Id
+
+--teeme päringu kus kasutame case-i
+select E.Name as Employee, case when M.Name is null then 'No Manager'
+else M.Name end as Manager
+from Employees E
+left join Employees M
+on E.ManagerId = M.Id
+
+--lisame tabelisse uued veerud
+alter table Employees
+add MiddleName nvarchar(30),
+LastName nvarchar(30)
+
+--muudame veeru nime
+SP_RENAME 'Employees.Name','FirstName'
+
+select * from Employees
+
+--näidis nime updateimiseks
+update Employees
+where FirstName = NULL, MiddleName = NULL, LastName = NULL
+where Id = NULL
+
+--igast reast võtab esimesena täidetud lahtri ja kuvab ainult seda
+select Id, coalesce(FirstName, MiddleName, LastName) as Name
+from Employees
+
+--loome kaks tabelit
+create table IndianCustomers
+(
+Id int identity(1,1),
+Name nvarchar(25),
+Email nvarchar(25)
+)
+
+create table UKCustomers
+(
+Id int identity(1,1),
+Name nvarchar(25),
+Email nvarchar(25)
+)
+
+insert into IndianCustomers (Name, Email)
+values ('Raj', 'r@r.com'),
+('Sam', 's@s.com')
+
+insert into UKCustomers (Name, Email)
+values ('Ben', 'B@B.com'),
+('Sam', 'S@S.com')
+
+--ksautame union all, mis näitab kõiki ridu
+select Id, Name, Email from IndianCustomers
+union all
+select Id, Name, Email from UKCustomers
+
+--korduvate väärtustega read pannakse ühte ja ei korrata
+select Id, Name, Email from IndianCustomers
+union
+select Id, Name, Email from UKCustomers
+
+--kuidas sorteerida nime järgi
+select Id, Name, Email from IndianCustomers
+union
+select Id, Name, Email from UKCustomers
+order by Name
+
+---stored procedure
+create procedure spGetEmployees
+as begin
+	select FirstName, Gender from Employees
+end
+
+--nüüd saab kasutada selle nimelist sp-d
+spGetEmployees
+exec spGetEmployees
+execute spGetEmployees
+
+---
+create proc spGetEmployeesByGenderAndDepartment
+@Gender nvarchar(20),
+@DepartmentId int
+as begin
+	select FirstName, Gender, DepartmentId from Employees where Gender = @Gender
+	and DepartmentId = @DepartmentId
+end
+
+--kui nüüd allolevat käsklust käima panna, siis nõuab Gender parameetrit
+exec spGetEmployeesByGenderAndDepartment
+--õige variant
+exec spGetEmployeesByGenderAndDepartment 'male', 1
+
+--nii saab parameetrite järjestusest mööda minna
+exec spGetEmployeesByGenderAndDepartment @DepartmentId = 1, @Gender = 'male'
+
+---saab sp sisu vaadata result vaates
+sp_helptext spGetEmployeesByGenderAndDepartment
+
+--kuidas muuta sp-d ja võti peale panna, et keegi teine peale teie ei saaks muuta
+alter proc spGetEmployeesByGenderAndDepartment
+@Gender nvarchar(20),
+@DepartmentId int
+with encryption
+as begin
+	select FirstName, Gender, DepartmentId from Employees where Gender = @Gender
+	and DepartmentId = @DepartmentId
+end
+
+sp_helptext spGetEmployeesByGenderAndDepartment
+
+create proc spGetEmployeeCountByGender
+@Gender nvarchar(20),
+@EmployeeCount int output
+as begin
+	select @EmployeeCount = count(Id) from Employees where Gender = @Gender
+end
+
+--annab tulemuse kus loendab ära nõuetele vastavad read
+--prindib ka tulemuse kirja teel
+declare @TotalCount int
+exec spGetEmployeeCountByGender 'male', @TotalCount out
+if(@TotalCount = 0)
+	print '@TotalCount is null'
+else
+	print '@TotalCount is not null'
+print @TotalCount
+go --tee ülevalpool ära ja siis mine edasi
+select * from Employees
