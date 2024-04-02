@@ -701,3 +701,188 @@ select FirstName, LastName, Email,
 	stuff(Email, 2, 3, '*****') as StuffedEmail
 from Employees
 
+create table DateTime
+(
+c_time time,
+c_date date,
+c_smalldatetime smalldatetime,
+c_datetime datetime,
+c_datetime2 datetime2,
+c_datetimeoffset datetimeoffset
+)
+
+select * from DateTime
+
+--konkreetse masina kellaaeg
+select getdate(), 'GETDATE()'
+
+insert into DateTime 
+values (getdate(), getdate(), getdate(), getdate(), getdate(), getdate())
+
+update DateTime set c_datetimeoffset = '2024-04-02 09:33:43.5866667 +10:00'
+where c_datetimeoffset = '2024-04-02 09:33:43.5866667 +00:00'
+
+--aja päring
+select CURRENT_TIMESTAMP, 'CURRENT_TIMESTAMP'
+select SYSDATETIME(), 'SYSDATETIME' --täpsem
+select SYSDATETIMEOFFSET(), 'SYSDATETIMEOFFSET' --aja tsooniga UTC
+select GETUTCDATE(), 'GETUTCDATE' --UTC aeg
+
+select ISDATE('asd') --tagastab 0 kuna string pole kp
+select ISDATE(getdate()) --tagastab 1 kuna on kp
+select ISDATE('2024-04-02 09:33:43.586') --tagastab 1 max 3 komakohaga
+select DAY(GETDATE()) --annab tänase kp numbri
+select DAY('2024-04-15') --annab stringis oleva kp ja järjestus peab olema õige
+select DAY('04/15/2024')
+select MONTH(GETDATE()) --annab kuu numbri
+select YEAR(GETDATE()) --annab aasta numbri
+
+select DATENAME(day, '2024-04-02 09:33:43.586') --annab stringis oleva päeva numbri
+select DATENAME(weekday, '2024-04-12 09:33:43.586') --annab stringis oleva nädala päeva
+select DATENAME(MONTH, '2024-04-02 09:33:43.586') --annab stringis oleva kuu sõnana
+
+create table EmployeesWithDates
+(
+Id nvarchar(2),
+Name nvarchar(20),
+DateOfBirth datetime
+)
+
+select * from EmployeesWithDates
+
+insert into EmployeesWithDates values
+(1, 'Sam', '1980-12-30 00:00:00.000'), 
+(2, 'Pam', '1982-09-01 12:01:36.260'), 
+(3, 'John', '1985-08-22 12:03:30.370'), 
+(4, 'Sara', '1979-11-29 12:59:30.670'), 
+(5, 'Todd', '1978-11-29 12:59:30.670')
+
+--kuidas võtta ühest veerust andmeid ja selle abil luua uusi andmeid
+select Name, DateOfBirth, DATENAME(WEEKDAY, DateOfBirth) as [Day], --vaatab DoB veerust päeva ja kuvab päeva nimetuse sõnana
+	   Month(DateOfBirth) as MonthNumber, --vaatab DoB veerust kp ja kuvab kuu numbri
+	   DateName(MONTH, DateOfBirth) as [MonthName], --vaatab DoB veerust kuud ja kuvab sõnana
+	   YEAR(DateOfBirth) as [Year] --võtab DoB veerust aasta
+from EmployeesWithDates
+
+select DATENAME(WEEKDAY, '1998-07-21') --minu sünni nädala päev
+
+select DATEPART(WEEKDAY, '2024-04-02 09:33:43.586') --kuvab 3 kuna USA nädal algab pühapäevaga
+select DATEPART(MONTH, '2024-04-02 09:33:43.586') --kuvab kuu nr
+select DATEADD(DAY, 20, '2024-04-02 09:33:43.586') --liidab päevale antud numbri
+select DATEADD(DAY, -20, '2024-04-02 09:33:43.586') --lahutab päevale antud numbri
+select DATEDIFF(MONTH, '11/30/2023', '04/02/2024') --leiab kuude vahe kahel stringil
+select DATEDIFF(YEAR, '11/30/2023', '04/02/2024') --leiab aasta vahe kahe stringi vahel
+
+---
+create function fnComputeAge(@DOB datetime)
+returns nvarchar(50)
+as begin
+	declare @tempdate datetime, @years int, @months int, @days int
+		select @tempdate = @DOB
+
+		select @years = DATEDIFF(year, @tempdate, getdate()) - case when (month(@DOB) > MONTH(GETDATE())) or (month(@DOB))
+		= month(GETDATE()) and day(@DOB) > day(GETDATE()) then 1 else 0 end
+		select @tempdate = dateadd(year, @years, @tempdate)
+
+		select @months = DATEDIFF(MONTH, @tempdate, getdate()) - case when day(@DOB) > day(GETDATE()) then 1 else 0 end
+		select @tempdate = DATEADD(MONTH, @months, @tempdate)
+
+		select @days = DATEDIFF(DAY, @tempdate, GETDATE())
+
+	declare @Age nvarchar(50)
+		set @Age = cast(@years as nvarchar(4)) + ' Years ' + cast(@months as nvarchar(2)) + ' Months ' + cast(@days as nvarchar(2)) + ' Days old'
+	return @Age
+end
+
+--saame vaadata kasutajate vanust
+select Id, Name, DateOfBirth, dbo.fnComputeAge(DateOfBirth) as Age from EmployeesWithDates
+
+-- kui kasutame seda funktsiooni, siis saame teada tänase päeva vahet stringis välja toodga
+select dbo.fnComputeAge('11/20/2011')
+
+--nr peale DOB muutujat näitab, et mismoodi kuvada DOB-d
+select Id, Name, DateOfBirth, convert(nvarchar, DateOfBirth, 126) as ConvertedDOB
+from EmployeesWithDates
+
+select Id, Name, Name + ' - ' + cast(Id as nvarchar) as [Name-Id] from EmployeesWithDates
+
+select cast(GETDATE() as date) --tänane kp
+select convert(date, GETDATE()) --tänane kp
+
+---matemaatilised funktsioonid
+
+select ABS(-101.5) --absoluutväärtus
+select ceiling(15.2) --ümardab üles
+select ceiling(-15.2) --ümardab positiivsema arvu suunas
+select floor(15.2) --ümardab alla poole
+select floor(-15.2) --ümardab negatiivsema poole
+select power(2, 4) --astendab 2, 4-ga 2x2x2x2
+select square(9) --9 ruudus
+select sqrt(81) --ruutjuur
+
+select rand() --annab suvalise nr
+select(floor(rand() * 100))
+
+--iga kord näitab 10 suvalist nr-t
+declare @counter int
+set @counter = 1
+while (@counter <= 10)
+begin
+	print floor(rand() * 1000)
+	set @counter = @counter + 1
+end
+
+select round(850.556, 2) --ümardab teise komakoha järgse numbrini
+select round(850.556, 2, 1) --ümardab alla poole
+select round(850.556, 0) --ümardab täisarvuni
+select round(850.556,-2) --ümardab kaks kohta enne koma ehk tulemus 900
+
+create function dbo.CalculateAge(@DOB date)
+returns int
+as begin
+	declare @Age int
+
+	set @Age = datediff(year, @DOB, GETDATE()) - 
+		case
+			when (month(@DOB) > MONTH(GETDATE())) or
+				 (month(@DOB) > MONTH(GETDATE()) and day(@DOB) > day(GETDATE()))
+			then 1
+			else 0
+			end
+		return @Age
+end
+
+exec CalculateAge '10/08/2022'
+
+--arvutab välja kui vana on isik ja võtab arvesse kuud ja päevad
+--antud juhul näitab kõike, kes on üle 36a vanad
+select Id, Name, dbo.CalculateAge(DateOfBirth) as Age from EmployeesWithDates
+where dbo.CalculateAge(DateOfBirth) > 36
+
+alter table EmployeesWithDates
+add DepartmentId int
+alter table EmployeesWithDates
+add Gender nvarchar(10)
+
+--scalar funktsioon annab mingis vahemikus olevaid andmeid, aga
+--inline table values ei kasuta begin ja end funktsioone
+--scalar annab väärtused ja inline annab tabeli
+create function fn_EmployeesByGender(@Gender nvarchar(10))
+returns table
+as
+return (select Id, Name, DateOfBirth, DepartmentId, Gender
+		from EmployeesWithDates
+		where Gender = @Gender)
+
+--kõik female töötajad
+select * from fn_EmployeesByGender('Female')
+
+--kuidas saaks samat päringut täpsustada
+select * from fn_EmployeesByGender('Female')
+where Name = 'Pam'
+
+--kahest erinevast tabelist andmete võtmine ja koos kuvamine
+--esimene on funktsioon ja teine tabel
+select Name, Gender, DepartmentName
+from fn_EmployeesByGender('Male') E
+join Department D on D.Id = E.DepartmentId
