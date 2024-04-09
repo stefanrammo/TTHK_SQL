@@ -743,19 +743,21 @@ select DATENAME(MONTH, '2024-04-02 09:33:43.586') --annab stringis oleva kuu sõn
 
 create table EmployeesWithDates
 (
-Id nvarchar(2),
+Id nvarchar(2) not null primary key,
 Name nvarchar(20),
-DateOfBirth datetime
+DateOfBirth datetime,
+Gender nvarchar(10),
+DepartmentId int
 )
 
 select * from EmployeesWithDates
 
 insert into EmployeesWithDates values
-(1, 'Sam', '1980-12-30 00:00:00.000'), 
-(2, 'Pam', '1982-09-01 12:01:36.260'), 
-(3, 'John', '1985-08-22 12:03:30.370'), 
-(4, 'Sara', '1979-11-29 12:59:30.670'), 
-(5, 'Todd', '1978-11-29 12:59:30.670')
+(1, 'Sam', '1980-12-30 00:00:00.000', 'Male', 1), 
+(2, 'Pam', '1982-09-01 12:01:36.260', 'Female', 2), 
+(3, 'John', '1985-08-22 12:03:30.370', 'Male', 1), 
+(4, 'Sara', '1979-11-29 12:59:30.670', 'Female', 3), 
+(5, 'Todd', '1978-11-29 12:59:30.670', 'Male', 1)
 
 --kuidas võtta ühest veerust andmeid ja selle abil luua uusi andmeid
 select Name, DateOfBirth, DATENAME(WEEKDAY, DateOfBirth) as [Day], --vaatab DoB veerust päeva ja kuvab päeva nimetuse sõnana
@@ -886,3 +888,204 @@ where Name = 'Pam'
 select Name, Gender, DepartmentName
 from fn_EmployeesByGender('Male') E
 join Department D on D.Id = E.DepartmentId
+
+--multi-table statement
+
+--inline funktsioon
+create function fn_GetEmployees()
+returns table as
+return (select Id, Name, cast(DateOfBirth as date)
+		as DOB
+		from EmployeesWithDates)
+
+--kutsume välja funktsiooni
+select * from fn_GetEmployees()
+
+--multi-state puhul peab defineerima uue tabeli veerud koos muutujatega
+create function fn_MS_GetEmployees()
+returns @Table Table (Id int, Name nvarchar(20), DOB date)
+as begin
+	insert into @Table
+	select Id, Name, cast(DateOfBirth as date) from EmployeesWithDates
+	return
+end
+
+select * from fn_MS_GetEmployees()
+
+---inline tabeli funktsioonid on paremini töötamas kuna käsitletakse vaatena e. view
+---multi puhul on pm tegemist store proceduriga ja kulutab ressurssi rohkem
+
+update fn_GetEmployees() set Name = 'Sam1' where Id = 1 --saab muuta andmeid
+select * from fn_MS_GetEmployees()
+update fn_MS_GetEmployees() set Name = 'Sam2' where Id = 1 --ei saa muuta andmeid multistate puhul
+
+--deterministic
+select count(*) from EmployeesWithDates
+select SQUARE(3) --kõik tehtemärgid on deterministlikud funktsioonid, sinna kuuluvad veel sum, avg ja square
+--non-deterministic
+select GETDATE()
+select CURRENT_TIMESTAMP
+select RAND() --see funktsioon saab olla mõlemas kategoorias, kõik oleneb sellest, kas sulgudes on 1 v ei ole
+
+create function fn_GetNameById(@Id int)
+returns nvarchar(30)
+as begin
+	return (select Name from EmployeesWithDates where Id = @Id)
+end
+
+select dbo.fn_GetNameById(4)
+
+drop table EmployeesWithDates
+
+select * from EmployeesWithDates
+
+create function fn_GetEmployeeNameById(@Id int)
+returns nvarchar(20)
+as begin
+	return (select Name from EmployeesWithDates where Id = @Id)
+end
+
+sp_helptext fn_GetEmployeeNameById
+
+--peale seda ei näe funktsiooni sisu
+alter function fn_GetEmployeeNameById(@Id int)
+returns nvarchar(20)
+with encryption
+as begin
+	return (select Name from EmployeesWithDates where Id = @Id)
+end
+
+--muudame ülevalpool olevat funktsiooni, kindlasti tabeli ette panna dbo.TabeliNimi
+alter function dbo.fn_GetEmployeeNameById(@Id int)
+returns nvarchar(20)
+with schemabinding
+as begin
+	return (select Name from EmployeesWithDates where Id = @Id)
+end
+
+---temporary tables
+---#-märgi ette panemisel saame aru, et tegemist on temp tabeliga
+---seda tabelit saab ainult selles päringus avada
+create table #PersonDetails(Id int, Name nvarchar(20))
+
+insert into #PersonDetails values(1, 'Mike')
+insert into #PersonDetails values(2, 'John')
+insert into #PersonDetails values(3, 'Todd')
+
+select * from #PersonDetails
+
+select Name from sysobjects
+where Name like '#PersonDetails%'
+
+--kustutame temp tabeli
+drop table #PersonDetails
+
+create proc spCreateLocalTempTable
+as begin
+create table #PersonDetails(Id int, Name nvarchar(20))
+
+insert into #PersonDetails values(1, 'Mike')
+insert into #PersonDetails values(2, 'John')
+insert into #PersonDetails values(3, 'Todd')
+
+select * from #PersonDetails
+end
+
+exec spCreateLocalTempTable
+
+--globaalse temp tabeli tegemine
+create table ##PersonDetails(Id int, Name nvarchar(20))
+
+---index
+create table EmployeeWithSalary
+(
+Id int primary key,
+Name nvarchar(25),
+Salary int,
+Gender nvarchar(10)
+)
+
+insert into EmployeeWithSalary values (1, 'Sam', 2500, 'Male')
+insert into EmployeeWithSalary values (2, 'Pam', 6500, 'Female')
+insert into EmployeeWithSalary values (3, 'John', 4500, 'Male')
+insert into EmployeeWithSalary values (4, 'Sara', 5500, 'Female')
+insert into EmployeeWithSalary values (5, 'Todd', 3100, 'Male')
+
+select * from EmployeeWithSalary
+
+select * from EmployeeWithSalary
+where Salary > 5000 and Salary < 7000
+
+--loome indeksi, mis asetab palga kahanevasse järjestusse
+create index IX_Employee_Salary
+on EmployeeWithSalary (Salary desc)
+
+--tahan vaadata indexi tulemust
+select * from EmployeeWithSalary with(Index(IX_Employee_Salary))
+
+drop index dbo.EmployeeWithSalary.IX_Employee_Salary
+
+--saame teada, et mis on selle tabeli primaarvõti ja index
+exec sys.sp_helpindex @objname = 'EmployeeWithSalary'
+
+--saame vaadata tabelit koos selle sisuga alates väga detailsest infost
+select
+	TableName = t.name,
+	IndexName = ind.name,
+	IndexId = ind.index_id,
+	ColumnId = ic.index_column_id,
+	ColumnName = col.name,
+	ind.*,
+	ic.*,
+	col.*
+from
+	sys.indexes ind
+inner join
+	sys.index_columns ic on ind.object_id = ic.object_id and ind.index_id = ic.index_id
+inner join
+	sys.columns col on ic.object_id = col.object_id and ic.column_id = col.column_id
+inner join
+	sys.tables t on ind.object_id = t.object_id
+where
+	ind.is_primary_key = 0
+	and ind.is_unique = 0
+	and ind.is_unique_constraint = 0
+	and t.is_ms_shipped = 0
+order by
+	t.name, ind.name, ind.index_id, ic.is_included_column, ic.key_ordinal
+
+create table EmployeeCity
+(
+Id int primary key,
+Name nvarchar(25),
+Salary int,
+Gender nvarchar(10),
+City nvarchar(50)
+)
+
+insert into EmployeeCity values (3, 'John', 4500, 'Male', 'New York')
+insert into EmployeeCity values (1, 'Sam', 2500, 'Female', 'London')
+insert into EmployeeCity values (4, 'Sara', 1500, 'Female', 'Tokyo')
+insert into EmployeeCity values (5, 'Todd', 3100, 'Male', 'Toronto')
+insert into EmployeeCity values (2, 'Pam', 6000, 'Female', 'Sydney')
+
+select * from EmployeeCity
+
+--klastris olevad indeksid dikteerivad säilitatud andmete järjestuse tabelis
+--ja seda saab klastrite puhul olla ainult üks
+
+create clustered index IX_EmployeeCity_Name
+on EmployeeCity(Name)
+
+--annab veateate, et tabelis saab olla ainult üks klastris olev indeks
+--kui soovid uut indeksit luua siis kustuta olemasolev
+
+--saame luua ainult ühe klastris oleva indeksi tabeli peale
+--klastris olev ideks on analoogne telefoni suunakoodile
+select * from EmployeeCity
+go
+create clustered index IX_Employee_Gender_Salary
+on EmployeeCity(Gender desc, Salary asc)
+go
+select * from EmployeeCity
+
