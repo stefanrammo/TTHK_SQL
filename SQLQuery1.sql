@@ -1827,3 +1827,315 @@ update EmployeeByDepartmentUpdateBothTables set Gender = 'Male', DepartmentName 
 truncate table Employee
 
 ---------------------------------------kopeerida 1997-2005 ja runnida
+
+
+insert into Employee values (1, 'Tom', 2)
+insert into Employee values (2, 'Josh', null)
+insert into Employee values (3, 'Mike', 2)
+insert into Employee values (4, 'John', 3)
+insert into Employee values (5, 'Pam', 1)
+insert into Employee values (6, 'Mary', 3)
+insert into Employee values (7, 'James', 1)
+insert into Employee values (8, 'Sam', 5)
+insert into Employee values (9, 'Simon', 1)
+
+--self joiniga saab sama tulemuse, mis CTEga
+--ja kuvada NULL veeru asemel Super Boss
+select Emp.Name as [Employee Name],
+ISNULL(Manager.Name, 'Super Boss') as [Manager Name]
+from dbo.Employee Emp
+left join Employee Manager
+on Emp.DepartmentId = Manager.Id
+
+--teeme samatulemusliku päringu
+with EmployeesCTE(Id, Name, DepartmentId, [Level])
+as
+(
+	select Employee.Id, Name, DepartmentId, 1
+	from Employee
+	where DepartmentId is null
+
+	union all
+
+	select Employee.Id, Employee.Name, 
+	Employee.DepartmentId, EmployeesCTE.[Level] + 1
+	from Employee
+	join EmployeesCTE
+	on Employee.DepartmentId = EmployeesCTE.Id
+)
+select EmpCTE.Name as Employee, isnull(MgrCTE.Name, 'SuperBoss') as Manager,
+EmpCTE.[Level]
+from EmployeesCTE EmpCTE
+left join EmployeesCTE MgrCTE
+on EmpCTE.DepartmentId = MgrCTE.Id
+
+create table ProductSales
+(
+	SalesAgent nvarchar(50),
+	SalesCountry nvarchar(50),
+	SalesAmout int
+)
+
+insert into ProductSales values
+('Tom', 'UK', 200),
+('John', 'US', 180),
+('John', 'UK', 260),
+('David', 'India', 450),
+('Tom', 'India', 350),
+('David', 'US', 200),
+('Tom', 'US', 130),
+('John', 'India', 540),
+('John', 'UK', 120),
+('David', 'UK', 220),
+('John', 'UK', 420),
+('David', 'US', 320),
+('Tom', 'US', 340),
+('Tom', 'UK', 660),
+('John', 'India', 430),
+('David', 'India', 230),
+('David', 'India', 280),
+('Tom', 'UK', 480),
+('John', 'US', 360),
+('David', 'UK', 140)
+
+select SalesCountry, SalesAgent, SUM(SalesAmount) as Total
+from ProductSales
+group by SalesCountry, SalesAgent
+order by SalesCountry, SalesAgent
+
+--pivot näide
+select SalesAgent, India, US, UK
+from ProductSales
+pivot
+(
+	sum(SalesAmount) for SalesCountry in ([India], [US], [UK])
+)
+as PivotTable
+
+--päring muudab unikaalsete veergude väärtust(India, US ja UK) SalesCountry veerus
+--omaette veergudeks koos veergude SalesAmount liitmisega
+
+create table ProductSalesWithId
+(
+	Id int primary key,
+	SalesAgent nvarchar(50),
+	SalesCountry nvarchar(50),
+	SalesAmount int
+)
+
+insert into ProductSalesWithId values
+(1, 'Tom', 'UK', 200),
+(2, 'John', 'US', 180),
+(3, 'John', 'UK', 260),
+(4, 'David', 'India', 450),
+(5, 'Tom', 'India', 350),
+(6, 'David', 'US', 200),
+(7, 'Tom', 'US', 130),
+(8, 'John', 'India', 540),
+(9, 'John', 'UK', 120),
+(10, 'David', 'UK', 220),
+(11, 'John', 'UK', 420),
+(12, 'David', 'US', 320),
+(13, 'Tom', 'US', 340),
+(14, 'Tom', 'UK', 660),
+(15, 'John', 'India', 430),
+(16, 'David', 'India', 230),
+(17, 'David', 'India', 280),
+(18, 'Tom', 'UK', 480),
+(19, 'John', 'US', 360),
+(20, 'David', 'UK', 140)
+
+select SalesAgent, India, US, UK
+from ProductSalesWithId
+pivot
+(
+	sum(SalesAmount) for SalesCountry in ([India], [US], [UK])
+)
+as PivotTable
+--põhjuseks on Id veeru olemasolu ProductSalesWithId tabelis, mida
+--võetakse arvesse pööramise ja grupeerimise järgi
+
+select SalesAgent, India, US, UK
+from
+(
+	select SalesAgent, SalesCountry, SalesAmount from ProductSalesWithId
+)
+as SourceTable
+pivot
+(
+	sum(SalesAmount) for SalesCountry in (India, US, UK)
+)
+as PivotTable
+--see päring liidab jälle kõik kokku nimede kohta aga Id-ga tabelis
+
+
+--teha üks UNPIVOT tabeliga ProductSalesWithId
+--ChatGPT versioon
+SELECT Id,
+       UnpivotedColumn AS SalesType,
+       UnpivotedValue AS SalesValue
+FROM 
+   (SELECT Id, SalesAgent, SalesCountry, CAST(SalesAmount AS nvarchar(50)) AS SalesAmount
+    FROM ProductSalesWithId) AS SourceTable
+UNPIVOT
+   (UnpivotedValue FOR UnpivotedColumn IN 
+      (SalesAgent, SalesCountry, SalesAmount)
+) AS UnpivotedTable;
+
+
+--õpetaja versioon
+select Id, FromAgentOrCountry, CountryOrAgent
+from
+(
+	select Id, SalesAgent, SalesCountry, SalesAmount
+	from ProductSalesWithId
+)
+as SourceTable
+unpivot
+(
+	CountryOrAgent for FromAgentOrCountry in (SalesAgent, SalesCountry)
+)
+as PivotTable
+
+---transactions
+--transaction jälgib järgmisi samme:
+--1. selle algus
+--2. käivitab andmebaasi käske
+--3. kontrollib vigu. Kui on viga, siis taastab algse oleku
+
+create table MailingAddress
+(
+	Id int not null primary key,
+	EmployeeNumber int,
+	HouseNumber nvarchar(50),
+	StreetAddress nvarchar(50),
+	City nvarchar(20),
+	PostalCode nvarchar(20)
+)
+
+insert into MailingAddress values
+(1, 101, '#10', 'King Street', 'London', 'CR27DW')
+
+create table PhysicalAddress
+(
+	Id int not null primary key,
+	EmployeeNumber int,
+	HouseNumber nvarchar(50),
+	StreetAddress nvarchar(50),
+	City nvarchar(20),
+	PostalCode nvarchar(20)
+)
+
+insert into PhysicalAddress values
+(1, 101, '#10', 'King Street', 'Londoon', 'CR27DW')
+
+---
+create proc spUpdateAddress
+as begin
+	begin try
+		begin transaction
+			update MailingAddress set City = 'LONDON'
+			where MailingAddress.Id = 1 and EmployeeNumber = 101
+
+			update PhysicalAddress set City = 'LONDON'
+			where PhysicalAddress.Id = 1 and EmployeeNumber = 101
+		commit transaction
+	end try
+	begin catch
+		rollback tran
+	end catch
+end
+exec spUpdateAddress
+
+--muudame sp-d nimega spUpdateAddress
+alter proc spUpdateAddress
+as begin
+	begin try
+		begin transaction
+			update MailingAddress set City = 'LONDON12'
+			where MailingAddress.Id = 1 and EmployeeNumber = 101
+
+			update PhysicalAddress set City = 'LONDONLONDONLONDONLONDON'
+			where PhysicalAddress.Id = 1 and EmployeeNumber = 101
+		commit transaction
+	end try
+	begin catch
+		rollback tran
+	end catch
+end
+exec spUpdateAddress
+go
+select * from MailingAddress
+select * from PhysicalAddress
+--kui teine uuendus ei lähe läbi siis esimene ei lähe ka läbi (liiga pikk >20)
+--kõik uuendused peavad läbi minema
+
+--transaction ACID test
+-------------------------kopeerida 2237-2262
+
+---subqueries
+create table Product
+(
+	Id int identity primary key,
+	Name nvarchar(50),
+	Description nvarchar(250)
+)
+
+create table ProductSales
+(
+	Id int primary key identity,
+	ProductId int foreign key references Product(Id),
+	UnitPrice int,
+	QuantitySold int
+)
+
+insert into Product values
+('TV', '52 inch black color OLED TV'),
+('Laptop', 'Very thin black color laptop'),
+('Desktop', 'HP high performance desktop')
+
+insert into ProductSales values
+(3, 450, 5),
+(2, 250, 7),
+(3, 450, 4),
+(3, 450, 9)
+
+select * from Product
+select * from ProductSales
+
+--kirjutame päringu, mis annab infot müümata toodetest
+select Id, Name, Description
+from Product
+where Id not in (select distinct ProductId from ProductSales)
+
+--enamus juhtudel saab subqueryt asendada JOIN-ga
+--teeme sama päringu JOIN-ga
+select Product.Id, Name, Description
+from Product
+left join ProductSales
+on Product.Id = ProductSales.ProductId
+where ProductSales.ProductId is null
+
+--teeme subquery, kus kasutame select-i. Kirjutame päringu,
+--kus saame teada Name ja TotalQuantity veeru andmed
+select Name,
+(select sum(QuantitySold) from ProductSales where ProductId = Product.Id)
+as [Total Quantity]
+from Product
+order by Name
+
+--sama tulemus JOINga
+select Name, sum(QuantitySold) as TotalQuantity
+from Product
+left join ProductSales
+on Product.Id = ProductSales.ProductId
+group by Name
+order by Name
+
+--subqueryt saab subquery sisse panna
+--subquerid on alati sulgudes ja neid nimetatakse sisemiseteks päringuteks
+
+----------------------------------rohkete andmetega testimise tabel
+truncate table ProductSales
+go
+truncate table Product
