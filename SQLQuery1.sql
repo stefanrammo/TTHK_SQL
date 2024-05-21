@@ -2445,3 +2445,360 @@ when matched then
 	update set T.Name = S.Name
 when not matched by target then
 	insert (Id, Name) values (S.Id, S.Name);
+
+
+---transactionid
+
+------------------------kopeerida 2678-82
+
+create table Account
+(
+Id int primary key,
+AccountName nvarchar(25),
+Balance int
+)
+
+insert into Account values
+(1, 'Mark', 1000),
+(2, 'Mary', 1000)
+
+begin try
+	begin transaction
+		update Account set Balance = Balance - 100 where Id = 1
+		update Account set Balance = Balance + 100 where Id = 2
+	commit transaction
+	print 'Transaction Committed'
+end try
+begin catch
+	rollback tran
+	print 'Transaction rolled back'
+end catch
+go
+select * from Account
+
+----------------------2709-2732
+
+--dirty read näide
+create table Inventory
+(
+Id int identity primary key,
+Product nvarchar(100),
+ItemsInStock int
+)
+go
+insert into Inventory values
+('iPhone', 10)
+select * from Inventory
+
+--esimene käsklus
+--esimene transaction
+begin tran
+	update Inventory set ItemsInStock = 9 where Id = 1
+	--kliendile tuleb arve
+	waitfor delay '00:00:15'
+	--ebapiisav saldojääk, teeb rollbacki
+	rollback tran
+
+--teine käsklus
+--samal ajal tegin uue päringuga akna,
+--kus kohe peale esimest käivitan teise
+--teine transaction
+set tran isolation level read uncommitted
+select * from Inventory where Id = 1
+
+--kolmas käsklus
+--nüüd panen käima selle käskluse
+select * from Inventory (nolock)
+where Id = 1
+
+select * from Inventory
+
+--tran 1
+set tran isolation level repeatable read
+
+begin tran
+declare @ItemsInStock int
+
+select @ItemsInStock = ItemsInStock
+from Inventory where Id = 1
+
+waitfor delay '00:00:10'
+set @ItemsInStock = @ItemsInStock - 1
+
+update Inventory 
+set ItemsInStock = @ItemsInStock where Id = 1
+
+print @ItemsInStock
+commit tran
+
+--samal ajal panen tööle teisest päringust teise transactioni
+
+set tran isolation level repeatable read
+begin tran
+declare @ItemsInStock int
+
+select @ItemsInStock = ItemsInStock
+from Inventory where Id = 1
+waitfor delay '00:00:01'
+set @ItemsInStock = @ItemsInStock - 2
+
+update Inventory
+set ItemsInStock = @ItemsInStock where Id = 1
+
+print @ItemsInStock
+commit tran
+
+--non-repeatable näide
+
+--------------------------2814-16
+
+--esimene tran
+--set tran isolation level repeatable read
+begin tran
+select ItemsInStock from Inventory where Id = 1
+waitfor delay '00:00:10'
+select ItemsInStock from Inventory
+where Id = 1
+commit tran
+
+--nüüd käivitan teise tran teisel ekraanil
+update Inventory set ItemsInStock = 10 where Id = 1
+
+--phantom read
+create table Employee
+(
+Id int primary key,
+Name nvarchar(25)
+)
+go
+insert into Employee values
+(1, 'Mark'),
+(3, 'Sara'),
+(100, 'Mary')
+
+select * from Employee
+--tran 1
+set tran isolation level serializable
+
+begin tran
+select * from Employee where Id between 1 and 3
+waitfor delay '00:00:10'
+select * from Employee where Id between 1 and 3
+commit tran
+
+--vastuseks tuleb: Mark ja Sara; Marcust ei näita aga peaks
+
+----------------------------2864-69
+
+---DEADLOCK
+--kui andmebaasis tekib ummikseis
+create table TableA
+(
+Id int identity primary key,
+Name nvarchar(50)
+)
+
+insert into TableA values('Mark')
+go
+create table TableB
+(
+Id int identity primary key,
+Name nvarchar(50)
+)
+
+insert into TableB values('Mary')
+
+--tran 1
+--samm nr 1
+begin tran
+update TableA set Name = 'Mark Transaction 1' where Id = 1
+
+--samm nr 3
+update TableB set Name = 'Mary Transaction 1' where Id = 1
+
+commit tran
+--teine server
+--samm nr 2
+begin tran
+update TableA set Name = 'Mark Transaction 2' where Id = 1
+
+--samm nr 4
+update TableB set Name = 'Mary Transaction 2' where Id = 1
+commit tran
+truncate table TableB
+
+select * from TableA
+select * from TableB
+
+-----------------------------------------2910-40
+truncate table TableA
+truncate table TableB
+
+insert into TableA values
+('Mark'),
+('Ben'),
+('Todd'),
+('Pam'),
+('Sara')
+
+insert into TableB values
+('Mary')
+
+--tran 1
+--samm 1
+begin tran
+update TableA set Name = Name + 
+' Transaction 1' where Id in (1, 2, 3, 4, 5)
+
+--samm 3
+update TableB set Name = Name + 
+' Transaction 1' where Id = 1
+
+--samm 5
+commit tran
+
+--teine server
+--samm 2
+set deadlock_priority high
+go
+begin tran
+update TableB set Name = Name + ' Transaction 1'
+
+--samm 4
+update TableA set Name = Name + ' Transaction 1' where Id
+in (1, 2, 3, 4, 5)
+
+--samm 6
+commit tran
+--teine server end
+
+truncate table TableA
+truncate table TableB
+
+---
+insert into TableA values ('Mark')
+insert into TableB values ('Mary')
+
+create proc spTransaction1
+as begin
+	begin tran
+	update TableA set Name = 'Mark Transaction 1' where Id = 1
+	waitfor delay '00:00:05'
+	update TableB set Name = 'Mary Transaction 1' where Id = 1
+	commit tran
+end
+
+create proc spTransaction2
+as begin
+	begin tran
+	update TableB set Name = 'Mark Transaction 2' where Id = 1
+	waitfor delay '00:00:05'
+	update TableA set Name = 'Mary Transaction 2' where Id = 1
+	commit tran
+end
+
+exec spTransaction1
+exec spTransaction2
+
+---errorlogi kuvamine
+exec sp_readerrorlog
+
+select OBJECT_NAME([object_id])
+from sys.partitions
+where hobt_id = 844424935768064
+
+select * from sys.partitions
+
+--deadlocki vea käsitlemine try ja catchiga
+alter proc spTransaction1
+as begin
+	begin tran
+	begin try
+		update TableA set Name = 'Mark Transaction 1' where Id = 1
+		waitfor delay '00:00:05'
+		update TableB set Name = 'Mary Transaction 1' where Id = 1
+		commit tran
+		select 'Transaction Successful'
+	end try
+	begin catch
+		--vaatab kas see error on deadlocki oma
+		if(ERROR_NUMBER() = 1205)
+		begin
+			select 'Deadlock. Transaction failed. Please retry'
+		end
+
+		rollback
+	end catch
+end
+
+exec spTransaction1
+--teine server begin
+alter proc spTransaction2
+as begin
+	begin tran
+	begin try
+		update TableB set Name = 'Mark Transaction 2' where Id = 1
+		waitfor delay '00:00:05'
+		update TableA set Name = 'Mary Transaction 2' where Id = 1
+		commit tran
+		select 'Transaction Successful'
+	end try
+	begin catch
+		--vaatab kas see error on deadlocki oma
+		if(ERROR_NUMBER() = 1205)
+		begin
+			select 'Deadlock. Transaction failed. Please retry'
+		end
+
+		rollback
+	end catch
+end
+
+exec spTransaction2
+--teine server end
+exec sp_readerrorlog
+
+begin tran
+update TableA set Name = 'Mark Transaction 1' where Id = 1
+--teise serverisse
+select count(*) from TableA
+delete from TableA where Id = 1
+truncate table TableA
+drop table TableA
+--end teine server
+commit tran
+
+SELECT
+    [s_tst].[session_id],
+    [s_es].[login_name] AS [Login Name],
+    DB_NAME (s_tdt.database_id) AS [Database],
+    [s_tdt].[database_transaction_begin_time] AS [Begin Time],
+    [s_tdt].[database_transaction_log_bytes_used] AS [Log Bytes],
+    [s_tdt].[database_transaction_log_bytes_reserved] AS [Log Rsvd],
+    [s_est].text AS [Last T-SQL Text],
+    [s_eqp].[query_plan] AS [Last Plan]
+FROM
+    sys.dm_tran_database_transactions [s_tdt]
+JOIN
+    sys.dm_tran_session_transactions [s_tst]
+ON
+    [s_tst].[transaction_id] = [s_tdt].[transaction_id]
+JOIN
+    sys.[dm_exec_sessions] [s_es]
+ON
+    [s_es].[session_id] = [s_tst].[session_id]
+JOIN
+    sys.dm_exec_connections [s_ec]
+ON
+    [s_ec].[session_id] = [s_tst].[session_id]
+LEFT OUTER JOIN
+    sys.dm_exec_requests [s_er]
+ON
+    [s_er].[session_id] = [s_tst].[session_id]
+CROSS APPLY
+    sys.dm_exec_sql_text ([s_ec].[most_recent_sql_handle]) AS [s_est]
+OUTER APPLY
+    sys.dm_exec_query_plan ([s_er].[plan_handle]) AS [s_eqp]
+ORDER BY
+    [Begin Time] ASC;
+GO
